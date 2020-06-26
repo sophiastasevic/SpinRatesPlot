@@ -2,7 +2,7 @@
 """
 Created on Tue Jun 16 10:35:13 2020
 
-Last Edited: 25/06/2020
+Last Edited: 26/06/2020
 
 @author: sophia
 
@@ -18,6 +18,7 @@ Allows input of cluster name and produces the following outputs:
     -KS test on disked and diskless, as well as low and high mass samples within a cluster [23/06/2020]
     -Plot of disk fraction as a function of period [24/06/2020]
     -Rolling quantiles at 10%, 50%, and 90% for period-mass [25/06/2020]
+    -Rolling disk fraction for disk fraction vs period plot [26/06/2020]
     
 Note [23/06/2020]: with updates to include separation between disked and non disked stars, hPer can no
 longer be used without commenting out/changing variables that use cluster.Disk. Easiest to
@@ -59,7 +60,7 @@ End of package imports
 """
 
 #asks user to input name of cluster they wish to use
-name_input = ''
+name_input = 'NGC2362'
 #name_input = input('Name of cluster:  ')
 
 if name_input =='NGC2264':
@@ -89,6 +90,7 @@ else:
 disked=np.where(cluster.Disk>0)[0]
 diskless=np.where(cluster.Disk<0)[0]
 unknown=np.where(cluster.Disk==0)[0]
+
 
 #only want stars that have mass, disk, and period data
 mass=np.where(np.isfinite(cluster.Mass))[0]
@@ -178,7 +180,7 @@ def MassHistCompare():
     
 #plots RA vs Dec map 
 def CoordMap():
-    if name_input == 'USco' or name_input == 'NGC2362':
+    if name_input == 'NGC2362': #or name_input == 'USco' or
         import astropy.coordinates as ac
         cat_disked = ac.SkyCoord(cluster.RA[disked], cluster.Dec[disked], unit="deg")
         cat_diskless = ac.SkyCoord(cluster.RA[diskless], cluster.Dec[diskless], unit="deg")
@@ -193,6 +195,7 @@ def CoordMap():
     plt.title('RA-Dec Map of {name}'.format(name=name_input))
     plt.savefig('{name}_disk_ra_dec_map.png'.format(name=name_input))
     plt.show() 
+    
 
 #plots normal histogram of stellar masses
 def MassHistNorm():
@@ -252,31 +255,111 @@ def PeriodHist():
     plt.savefig('{name}_disk_period_hist.png'.format(name=name_input))
     plt.show()
     
-def DiskFractHist():
     
-    #bin_list=[0,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30]
-    bin_list=[0,1.5,3,4.5,6,7.5,9,10.5,12,13.5,15,16.5,18,19.5,21]
-    #bin_list=[0,1,2,3,4,5,6,7,8,9,10]
+def DiskFractPlot():
     
+    window=int(20)
+    
+    prot_sort=cluster.Prot[has_disk_mass_prot]
+    sort=np.argsort(prot_sort)
+    prot_sort=prot_sort[sort]
+    length=int(len(cluster.Prot[has_disk_mass_prot])/window)
+    
+    bin_list=np.empty(length)
+    bin_list[0]=0
+    for i in range(0,(length-1)):
+        bin_list[i+1]=prot_sort[(i+1)*window]+bin_list[i]
+        
+
     a=plt.hist(cluster.Prot[has_diskless_mass_prot], bins=bin_list, rwidth=0.9, alpha=0.5, edgecolor='blue', cumulative=False, color='c',label='Diskless')
     b=plt.hist(cluster.Prot[has_disked_mass_prot], bins=bin_list, rwidth=0.9, alpha=0.5, edgecolor='purple', cumulative=False, color='m',label='Disk')
+    
     plt.show()
    
-    x=[0,1.5,3,4.5,6,7.5,9,10.5,12,13.5,15,16.5,18,19.5]
-    x#=[0,1,2,3,4,5,6,7,8,9]
-    y=100*b[0]/(a[0]+b[0])
-   
-    plt.bar(x,y,width=1.4,align='edge',alpha=0.6, color='g')
+    #creates an array for the midpont between each bin of the histogram
+    x=np.empty(len(bin_list)-1)
+    for i in range(0,len(bin_list)-1):
+        x[i]=0.5*(bin_list[i]+bin_list[i+1])
+    
+    y=100*b[0]/(a[0]+b[0]) #calculating disk fraction
+    
+    #error bars in x axis are the size of the bins used in the histogram
+    xerr=np.empty(len(x))
+    for i in range(0,len(x)):
+        xerr[i]=0.5*(bin_list[i+1]-bin_list[i])
+        
+    plt.errorbar(x,y,None,xerr,alpha=0.6, color='g', fmt='o')
 
     plt.ylabel('Disk Fraction [%]')
     plt.xlabel('Period [days]')
     plt.xlim(xmin=0)
     #plt.legend(loc='upper right')
-    plt.title('Period histogram for {name} in terms of disk fraction'.format(name=name_input))
+    plt.title('Disk fraction-Period plot for {name}'.format(name=name_input))
     
-    plt.savefig('{name}_disk_fract_period_hist.png'.format(name=name_input))
-    #plt.show()
+    #plt.savefig('{name}_disk_fract_period_scatter.png'.format(name=name_input))
+    plt.show()
     
+#way of plotting the data similar to the rolling quantiles -- helps small sample size problem
+def DiskFractAlt():
+    
+    prot_sort=cluster.Prot[has_disk_mass_prot]
+    disk_sort=cluster.Disk[has_disk_mass_prot]
+    sort=np.argsort(prot_sort)
+    prot_sort=prot_sort[sort]
+    disk_sort=disk_sort[sort]
+    data_length=int(len(cluster.Prot[has_disk_mass_prot]))
+    window=int(data_length*0.5)
+    length=data_length-(window+1)
+    
+    y=np.empty(length)
+    x=np.empty(length)
+    for i in range(0,(length)):
+        n_disk=0
+        n_diskless=0
+        n_unknown=0
+        for n in range(i,(i+window)):
+            if disk_sort[n]>0:
+                n_disk=n_disk+1
+            elif disk_sort[n]<0:
+                n_diskless=n_diskless+1
+            else:
+                n_unknown=n_unknown+1
+        x[i]=prot_sort[i]
+        y[i]=100*n_disk/(n_disk+n_diskless+n_unknown)
+   
+    #a lot of the slower rotators are cut off due to the window size, added an extra section to try and keep more data in the plot
+    window_slow=int(data_length*0.15) #must be lower than window
+    s=np.empty(window-(window_slow+1))
+    t=np.empty(window-(window_slow+1))
+    
+
+    for p in range(0,window-(window_slow+1)): 
+        q_disk=0
+        q_diskless=0
+        q_unknown=0
+        for q in range(p,(p+window_slow)):
+            if disk_sort[length+q]>0:
+                q_disk=q_disk+1
+            elif disk_sort[length+q]<0:
+                q_diskless=q_diskless+1
+            else:
+                q_unknown=q_unknown+1
+        s[p]=prot_sort[length+p]
+        t[p]=100*q_disk/(q_disk+q_diskless+q_unknown)
+        
+    w=[*x,*s] #joins the two sets of data together so that the curves can be overplotted to fix discontinuity between curves
+    z=[*y,*t]
+        
+    plt.ylabel('Disk Fraction [%]')
+    plt.xlabel('Period [days]')
+    plt.title('Rolling Disk fraction-Period plot for {name}'.format(name=name_input))
+    plt.plot(w,z,color='b',label='window size = 50%')
+    plt.plot(s,t,color='r', label= 'window size = 15%')
+    plt.legend(loc='upper right')
+    
+    plt.savefig('{name}_disk_fract_period_rolling.png'.format(name=name_input))
+    plt.show()
+
 def RollingQuant():
     
     prot_sort=cluster.Prot[has_disk_mass_prot]
@@ -287,7 +370,7 @@ def RollingQuant():
     
     print(min_size)
 
-    sort=np.argsort(mass_sort)
+    sort=np.argsort(mass_sort) #creates an array for the positions of cluster.mass if it were in order of smallest to largest
 
     prot_sort=prot_sort[sort]
     mass_sort=mass_sort[sort]
@@ -303,6 +386,26 @@ def RollingQuant():
     quant=series.rolling(window=window_size,min_periods=min_size,center=True).quantile(0.1,interpolation='linear')
     plt.plot(mass_sort,quant,color='k',alpha=0.9)
 
+def PeriodMap():
+    
+    if name_input == 'NGC2362': #or name_input == 'USco'
+        import astropy.coordinates as ac
+        cat = ac.SkyCoord(cluster.RA[has_disk_mass_prot], cluster.Dec[has_disk_mass_prot], unit="deg")
+        a=plt.scatter(cat.ra.deg*15, cat.dec.deg, c=cluster.Prot[has_disk_mass_prot],alpha=0.6,cmap = plt.cm.Spectral_r) #RA is *15 to convert from time to degrees
+       
+    else:
+        a=plt.scatter(cluster.RA[has_disk_mass_prot], cluster.Dec[has_disk_mass_prot], c=cluster.Prot[has_disk_mass_prot],alpha=0.6,cmap = plt.cm.Spectral_r)
+    
+    cb=plt.colorbar(a, orientation="vertical", pad=0.01,aspect=15)
+    cb.ax.set_ylabel('Period [days]', rotation=270,linespacing=5,fontsize=10,labelpad=20)
+    #plt.legend(loc='upper right')    
+    plt.xlabel('Right Ascension [deg]')
+    plt.ylabel('Declination [deg]')
+    plt.title('RA-Dec Map of {name}'.format(name=name_input))
+    plt.savefig('{name}_period_ra_dec_map.png'.format(name=name_input))
+    
+    
+    plt.show()
     
 """
 ============================	CALCULATIONS	=================================
@@ -310,7 +413,7 @@ def RollingQuant():
 
 def WidthCalc():
     cluster.ClusterInfo()
-    if name_input == 'USco' or name_input == 'NGC2362':
+    if name_input == 'NGC2362': #or name_input == 'USco'
         import astropy.coordinates as ac
         cat = ac.SkyCoord(cluster.RA, cluster.Dec, unit="deg")
         RA_width = 15*(max(cat.ra.deg)-min(cat.ra.deg))
@@ -349,10 +452,11 @@ def KSTest():
 #MassHistNorm()
 #MassHistCumul()
 #PeriodHist()
-#DiskFractHist()
+#DiskFractPlot()
+DiskFractAlt()
 #MassCompare()
 #MassHistCompare()
 #WidthCalc()
 #KSTest()
+#PeriodMap()
 
-RollingQuant()
